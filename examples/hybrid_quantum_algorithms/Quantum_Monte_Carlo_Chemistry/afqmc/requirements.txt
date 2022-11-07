@@ -1,13 +1,13 @@
-amazon-braket-default-simulator==1.7.2
-amazon-braket-pennylane-plugin==1.6.7
-amazon-braket-schemas==1.10.1
-amazon-braket-sdk==1.26.0
+#amazon-braket-default-simulator==1.7.2
+#amazon-braket-schemas==1.10.1
+#amazon-braket-sdk==1.26.0
 
-numpy==1.19.2
+amazon-braket-pennylane-plugin
+#numpy==1.19.2
 openfermion==1.0.0
 
-pennylane==0.23.1
-pennylane-lightning==0.23.0
+pennylane#==0.23.1
+pennylane-lightning#==0.23.0
 
 pyscf==2.1.1
 tqdm==4.64.1
