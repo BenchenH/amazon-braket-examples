@@ -1,5 +1,8 @@
+#!/usr/bin/env
+
 import copy
 import multiprocessing as mp
+import os
 
 import numpy as np
 from openfermion.circuits.low_rank import low_rank_two_body_decomposition
@@ -7,7 +10,7 @@ from scipy.linalg import det, expm, qr
 from tqdm import tqdm
 
 
-def reortho(A: np.ndarray):
+def reortho(A):
     """Reorthogonalise a MxN matrix A.
     Performs a QR decomposition of A. Note that for consistency elsewhere we
     want to preserve detR > 0 which is not guaranteed. We thus factor the signs
@@ -41,7 +44,7 @@ def G_pq(psi: np.ndarray, phi: np.ndarray):
     return G
 
 
-def local_energy(h1e: np.ndarray, eri: np.ndarray, G: np.ndarray, enuc: float):
+def local_energy(h1e, eri, G, enuc):
     r"""Calculate local for generic two-body hamiltonian.
     This uses the full (spatial) form for the two-electron integrals.
 
@@ -49,8 +52,6 @@ def local_energy(h1e: np.ndarray, eri: np.ndarray, G: np.ndarray, enuc: float):
         h1e (np.ndarray): one-body term
         eri (np.ndarray): two-body term
         G (np.ndarray): Walker's "green's function"
-        enuc (float): nuclear repulsion energy
-
 
     Returns:
         T + V + enuc (float): kinetic, potential energies and nuclear repulsion energy.
@@ -70,7 +71,7 @@ def local_energy(h1e: np.ndarray, eri: np.ndarray, G: np.ndarray, enuc: float):
     return e1 + e2 + enuc
 
 
-def chemistry_preparation(mol, hf, trial: np.ndarray):
+def chemistry_preparation(mol, hf, trial):
     """
     This function returns one- and two-electron integrals from PySCF.
 
@@ -97,7 +98,7 @@ def chemistry_preparation(mol, hf, trial: np.ndarray):
     h1e = scf_c.T @ h1e @ scf_c
 
     # For the modified physics notation adapted to quantum computing convention.
-    for _ in range(4):
+    for i in range(4):
         h2e = np.tensordot(h2e, scf_c, axes=1).transpose(3, 0, 1, 2)
     eri = h2e.transpose(0, 2, 3, 1)
 
@@ -167,7 +168,6 @@ def PropagateWalker(x, v_0, v_gamma, mf_shift, dtau, trial, walker, G):
         v_expectation = np.append(v_expectation, value)
 
     xbar = -np.sqrt(dtau) * (v_expectation - mf_shift)
-
     # Sampling the auxiliary fields
     xshifted = x - xbar
 
@@ -199,9 +199,9 @@ def ImagTimePropagator(
     trial: np.ndarray,
     walker: np.ndarray,
     weight: float,
-    h1e: np.ndarray,
-    eri: np.ndarray,
-    enuc: float,
+    h1e,
+    eri,
+    enuc,
     E_shift: float,
 ):
     r"""This function defines the imaginary propagation process and will return new walker state and new weight.
@@ -214,8 +214,7 @@ def ImagTimePropagator(
         trial: trial state as np.ndarray, e.g., for h2 HartreeFock state, it is np.array([[1,0], [0,1], [0,0], [0,0]])
         walker: walker state as np.ndarray, others are the same as trial
         weight: weight associated with the specific walker
-        h1e: one-electron integral stored in spatial orbitals basis
-        eri: two-electron integral stored in spatial orbitals basis
+        h1e, eri: one- and two-electron integral stored in spatial orbitals basis
         enuc: nuclear repulsion energy
         E_shift: reference energy, usually taken as the HF energy.
 
@@ -225,9 +224,10 @@ def ImagTimePropagator(
         new_walker: new walker for next time step
 
     """
-    # First compute the bias force using the expectation value of L operators
     seed = np.random.seed(int.from_bytes(os.urandom(4), byteorder="little"))
 
+    # First compute the bias force using the expectation value of L operators
+    num_spin_orbitals, num_electrons = trial.shape
     num_fields = len(v_gamma)
 
     # compute the overlap integral
@@ -242,7 +242,6 @@ def ImagTimePropagator(
 
     # sampling the auxiliary fields
     x = np.random.normal(0.0, 1.0, size=num_fields)
-
     # update the walker
     new_walker = PropagateWalker(x, v_0, v_gamma, mf_shift, dtau, trial, walker, G)
 
@@ -254,7 +253,10 @@ def ImagTimePropagator(
     return E_loc, new_walker, new_weight
 
 
-def ImagTimePropagatorWrapper(args):
+def multi_run_wrapper(args):
+    """
+    Wrapper function for multiprocessing
+    """
     return ImagTimePropagator(*args)
 
 
@@ -296,8 +298,13 @@ def cAFQMC(
     total_time = np.linspace(dtau, int(dtau * num_steps), num=num_steps)
     walkers = [trial] * num_walkers
     weights = [1.0] * num_walkers
+    t_step = 0
 
-    for _ in tqdm(range(num_steps + 1), disable=not progress_bar):
+    def generator():
+        while t_step <= num_steps:
+            yield
+
+    for _ in tqdm(generator(), disable=not progress_bar):
         weight_list = []
         walker_list = []
         energy_list = []
@@ -320,7 +327,7 @@ def cAFQMC(
         ]
 
         with mp.Pool(max_pool) as pool:
-            results = list(pool.map(ImagTimePropagatorWrapper, inputs))
+            results = list(pool.map(multi_run_wrapper, inputs))
 
         for (E_loc, new_walker, new_weight) in results:
             energy_list.append(E_loc)
@@ -334,6 +341,7 @@ def cAFQMC(
         E_list.append(E)
         E_shift = E
 
+        t_step += 1
         walkers = walker_list  # update the walkers
         weights = weight_list  # update the weights
 
