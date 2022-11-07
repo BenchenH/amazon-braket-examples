@@ -252,6 +252,10 @@ def ImagTimePropagator(
     return E_loc, new_walker, new_weight
 
 
+def ImagTimePropagatorWrapper(args):
+    return ImagTimePropagator(*args)
+
+
 def cAFQMC(
     num_walkers,
     num_steps,
@@ -320,7 +324,7 @@ def cAFQMC(
             )
 
         with mp.Pool(max_pool) as pool:
-            results = list(pool.map(lambda x: ImagTimePropagator(*x), inputs))
+            results = list(pool.map(ImagTimePropagatorWrapper, inputs))
 
         for (E_loc, new_walker, new_weight) in results:
             energy_list.append(E_loc)

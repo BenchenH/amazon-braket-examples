@@ -4,7 +4,7 @@ from typing import Callable, List, Tuple
 
 import numpy as np
 import pennylane as qml
-from afqmc.classical_afqmc import G_pq, ImagTimePropagator, PropagateWalker, local_energy
+from afqmc.classical_afqmc import G_pq, ImagTimePropagatorWrapper, PropagateWalker, local_energy
 from braket.jobs.metrics import log_metric
 from openfermion.linalg.givens_rotations import givens_decomposition_square
 from scipy.linalg import det, expm, qr
@@ -564,6 +564,10 @@ def qImagTimePropagator(
     return E_loc, new_ovlp, new_walker, new_weight
 
 
+def ImagTimePropagatorQAEEWrapper(args):
+    return ImagTimePropagator_QAEE(*args)
+
+
 def qAFQMC(
     num_walkers,
     num_steps,
@@ -656,7 +660,7 @@ def qAFQMC(
                 )
 
             with mp.Pool(max_pool) as pool:
-                results = list(pool.map(lambda x: ImagTimePropagator_QAEE(*x), inputs))
+                results = list(pool.map(ImagTimePropagatorQAEEWrapper, inputs))
 
             for (E_loc, E_loc_q, ovlp_ratio, new_walker, new_weight) in results:
                 cenergy_list.append(E_loc)
@@ -695,7 +699,7 @@ def qAFQMC(
                 )
 
             with mp.Pool(max_pool) as pool:
-                results = list(pool.map(lambda x: ImagTimePropagator(*x), inputs))
+                results = list(pool.map(ImagTimePropagatorWrapper, inputs))
 
             for (E_loc, new_walker, new_weight) in results:
                 cenergy_list.append(E_loc)
