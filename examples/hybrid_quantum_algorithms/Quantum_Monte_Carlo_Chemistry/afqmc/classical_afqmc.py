@@ -298,11 +298,11 @@ def cAFQMC(
     weights = [1.0] * num_walkers
     t_step = 0
 
-    def generator():
-        while t_step <= num_steps:
-            yield
+    # def generator():
+    #     while t_step <= num_steps:
+    #         yield
 
-    for _ in tqdm(generator(), disable=not progress_bar):
+    for _ in tqdm(range(num_steps + 1), disable=not progress_bar):
         weight_list = []
         walker_list = []
         energy_list = []
@@ -329,7 +329,6 @@ def cAFQMC(
 
         for (E_loc, new_walker, new_weight) in results:
             energy_list.append(E_loc)
-
             # for computational stability, we neglect the weights that are too small.
             if new_weight > 1e-16:
                 weight_list.append(new_weight)
