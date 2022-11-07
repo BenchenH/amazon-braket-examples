@@ -226,6 +226,8 @@ def ImagTimePropagator(
 
     """
     # First compute the bias force using the expectation value of L operators
+    seed = np.random.seed(int.from_bytes(os.urandom(4), byteorder="little"))
+
     num_fields = len(v_gamma)
 
     # compute the overlap integral
