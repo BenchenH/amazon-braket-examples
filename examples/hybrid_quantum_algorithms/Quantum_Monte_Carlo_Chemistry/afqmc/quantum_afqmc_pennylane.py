@@ -623,12 +623,8 @@ def qAFQMC(
     weights = [1.0] * num_walkers
     t_step = 0
 
-    def generator():
-        while t_step <= num_steps:
-            yield
-
-    for _ in tqdm(generator(), disable=not progress_bar):
-        t = t_step * dtau
+    for j in tqdm(range(num_steps + 1), disable=not progress_bar):
+        t = total_time[j] - dtau
         weight_list = []
         walker_list = []
         cenergy_list = []
@@ -637,27 +633,27 @@ def qAFQMC(
 
         inputs = []
         if np.round(t, 4) in q_total_time:
-            for i in range(len(weights)):
-                inputs.append(
-                    (
-                        v_0,
-                        v_gamma,
-                        mf_shift,
-                        dtau,
-                        trial,
-                        walkers[i],
-                        weights[i],
-                        h1e,
-                        eri,
-                        enuc,
-                        E_shift,
-                        h_chem,
-                        lambda_l,
-                        U_l,
-                        V_T,
-                        dev,
-                    )
+            inputs = [
+                (
+                    v_0,
+                    v_gamma,
+                    mf_shift,
+                    dtau,
+                    trial,
+                    walkers[i],
+                    weights[i],
+                    h1e,
+                    eri,
+                    enuc,
+                    E_shift,
+                    h_chem,
+                    lambda_l,
+                    U_l,
+                    V_T,
+                    dev,
                 )
+                for i in range(len(weights))
+            ]
 
             with mp.Pool(max_pool) as pool:
                 results = list(pool.map(ImagTimePropagatorQAEEWrapper, inputs))
