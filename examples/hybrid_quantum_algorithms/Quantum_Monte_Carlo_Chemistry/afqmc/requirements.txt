@@ -6,8 +6,10 @@ amazon-braket-pennylane-plugin
 #numpy==1.19.2
 openfermion==1.0.0
 
-pennylane#==0.23.1
-pennylane-lightning#==0.23.0
+pennylane
+#==0.23.1
+pennylane-lightning
+#==0.23.0
 
 pyscf==2.1.1
 tqdm==4.64.1

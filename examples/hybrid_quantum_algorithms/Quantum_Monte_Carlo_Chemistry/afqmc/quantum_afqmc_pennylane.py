@@ -624,7 +624,6 @@ def qAFQMC(
     t_step = 0
 
     for j in tqdm(range(num_steps + 1), disable=not progress_bar):
-        t = total_time[j] - dtau
         weight_list = []
         walker_list = []
         cenergy_list = []
@@ -632,7 +631,7 @@ def qAFQMC(
         ovlpratio_list = []
 
         inputs = []
-        if np.round(t, 4) in q_total_time:
+        if np.round(total_time[j] - dtau, 4) in q_total_time:
             inputs = [
                 (
                     v_0,
@@ -677,22 +676,22 @@ def qAFQMC(
                 log_metric(metric_name="qE_list", value=qE, iteration_number=t_step)
 
         else:
-            for i in range(len(weights)):
-                inputs.append(
-                    (
-                        v_0,
-                        v_gamma,
-                        mf_shift,
-                        dtau,
-                        trial,
-                        walkers[i],
-                        weights[i],
-                        h1e,
-                        eri,
-                        enuc,
-                        E_shift,
-                    )
+            inputs = [
+                (
+                    v_0,
+                    v_gamma,
+                    mf_shift,
+                    dtau,
+                    trial,
+                    walkers[i],
+                    weights[i],
+                    h1e,
+                    eri,
+                    enuc,
+                    E_shift,
                 )
+                for i in range(len(weights))
+            ]
 
             with mp.Pool(max_pool) as pool:
                 results = list(pool.map(ImagTimePropagatorWrapper, inputs))
@@ -709,7 +708,6 @@ def qAFQMC(
         if not progress_bar:
             log_metric(metric_name="cE_list", value=E, iteration_number=t_step)
 
-        t_step += 1
         walkers = walker_list
         weights = weight_list
 
