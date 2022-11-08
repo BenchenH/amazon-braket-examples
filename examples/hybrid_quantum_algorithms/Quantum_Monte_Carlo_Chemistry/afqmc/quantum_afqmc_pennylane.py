@@ -20,6 +20,49 @@ from tqdm import tqdm
 CUTOFF = 1e-14
 
 
+def qqmc_wrapper(args):
+    return qqmc(*args)
+
+
+def new_qAFQMC(
+    num_walkers: int,
+    num_steps: int,
+    dtau: float,
+    trial: np.ndarray,
+    prop: ChemicalProperties,
+    dev: qml.Device,
+    max_pool: int = 8,
+):
+
+    trial_up = trial[::2, ::2]
+    trial_down = trial[1::2, 1::2]
+    # compute its one particle Green's function
+    G = [G_pq(trial_up, trial_up), G_pq(trial_down, trial_down)]
+    Ehf = local_energy(prop.h1e, prop.eri, G, prop.nuclear_repulsion)
+
+    E_shift = Ehf  # set energy shift E_0 as HF energy from earlier
+    walkers = [trial] * num_walkers
+    weights = [1.0] * num_walkers
+
+    inputs = [
+        (num_steps, dtau, trial, walker, weight, prop, E_shift, dev)
+        for walker, weight in zip(walkers, weights)
+    ]
+
+    with mp.Pool(max_pool) as pool:
+        energies = list(pool.map(qqmc_wrapper, inputs))
+
+    return energies
+
+
+def qqmc(num_steps, dtau, trial, walker, weight, prop, E_shift, dev):
+    energy_list = []
+    for _ in range(num_steps):
+        E_loc, _, _, _, _ = ImagTimePropagator_QAEE(dtau, trial, walker, weight, prop, E_shift, dev)
+        energy_list.append(E_loc)
+    return energy_list
+
+
 def qAFQMC(
     q_total_time: Iterable,
     num_walkers: int,
@@ -539,8 +582,10 @@ def ImagTimePropagator_QAEE(
     new_ovlp = np.linalg.det(trial.transpose().conj() @ new_walker)
     arg = np.angle(new_ovlp / ovlp)
     new_weight = weight * np.exp(-dtau * (np.real(E_loc) - E_shift)) * np.max([0.0, np.cos(arg)])
-
+    if new_weight < CUTOFF:
+        new_weight = 0
     return E_loc, (E_loc_q / c_ovlp), (q_ovlp / c_ovlp), new_walker, new_weight
+    # return quantum_energy(weights, ovlpratio_list, qenergy_list)
 
 
 def V_T():
