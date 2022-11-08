@@ -51,6 +51,7 @@ def new_qAFQMC(
 
     with mp.Pool(max_pool) as pool:
         energies = list(pool.map(qqmc_wrapper, inputs))
+        # TODO: This should also use the weights, not just E_loc
 
     return energies
 
