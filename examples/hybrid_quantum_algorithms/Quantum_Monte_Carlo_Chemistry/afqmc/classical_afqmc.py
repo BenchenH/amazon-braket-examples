@@ -26,6 +26,47 @@ class ChemicalProperties:
     U_l: List[np.ndarray]
 
 
+def qmc_wrapper(args):
+    return qmc(*args)
+
+
+def new_cAFQMC(
+    num_walkers: int,
+    num_steps: int,
+    dtau: float,
+    trial: np.ndarray,
+    prop: ChemicalProperties,
+    max_pool: int = 8,
+):
+    trial_up = trial[::2, ::2]
+    trial_down = trial[1::2, 1::2]
+    # compute its one particle Green's function
+    G = [G_pq(trial_up, trial_up), G_pq(trial_down, trial_down)]
+    Ehf = local_energy(prop.h1e, prop.eri, G, prop.nuclear_repulsion)
+
+    E_shift = Ehf  # set energy shift E_0 as HF energy from earlier
+    walkers = [trial] * num_walkers
+    weights = [1.0] * num_walkers
+
+    inputs = [
+        (num_steps, dtau, trial, prop, E_shift, walker, weight)
+        for walker, weight in zip(walkers, weights)
+    ]
+
+    with mp.Pool(max_pool) as pool:
+        energies = list(pool.map(qmc_wrapper, inputs))
+
+    return energies
+
+
+def qmc(num_steps, dtau, trial, prop, E_shift, walker, weight):
+    energy_list = []
+    for _ in range(num_steps):
+        E_loc, walker, weight = ImagTimePropagator(dtau, trial, walker, weight, prop, E_shift)
+        energy_list.append(E_loc)
+    return energy_list
+
+
 def cAFQMC(
     num_walkers: int,
     num_steps: int,
@@ -63,11 +104,12 @@ def cAFQMC(
     Ehf = local_energy(prop.h1e, prop.eri, G, prop.nuclear_repulsion)
 
     E_shift = Ehf  # set energy shift E_0 as HF energy from earlier
-    ctimes = np.linspace(dtau, int(dtau * num_steps), num=num_steps)
+    ctimes = []
     walkers = [trial] * num_walkers
     weights = [1.0] * num_walkers
 
-    for _ in tqdm(range(num_steps), disable=not progress_bar):
+    for t in tqdm(range(num_steps), disable=not progress_bar):
+        ctimes.append(t * dtau)
         inputs = [
             (dtau, trial, walker, weight, prop, E_shift) for walker, weight in zip(walkers, weights)
         ]
@@ -154,6 +196,9 @@ def ImagTimePropagator(
     new_ovlp = np.linalg.det(trial.transpose().conj() @ new_walker)
     arg = np.angle(new_ovlp / ovlp)
     new_weight = weight * np.exp(-dtau * (np.real(E_loc) - E_shift)) * np.max([0.0, np.cos(arg)])
+
+    if new_weight < CUTOFF:
+        new_weight = 0
 
     return E_loc, new_walker, new_weight
 
