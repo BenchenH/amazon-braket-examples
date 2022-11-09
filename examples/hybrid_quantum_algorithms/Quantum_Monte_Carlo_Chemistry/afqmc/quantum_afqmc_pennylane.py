@@ -14,6 +14,7 @@ from afqmc.classical_afqmc import (
     reortho,
 )
 from openfermion.linalg.givens_rotations import givens_decomposition_square
+from scipy.linalg import expm
 
 np.seterr(divide="ignore", invalid="ignore")  # ignore divide by zero
 
@@ -493,7 +494,7 @@ def q_propogate_walker(x, v_0, v_gamma, mf_shift, dtau, walker, V_T, ovlp, dev):
     num_spin_orbitals, num_electrons = walker.shape
     num_fields = len(v_gamma)
 
-    v_expectation = qExpect_OneBody(walker, v_gamma, ovlp, V_T, dev)
+    v_expectation = one_body_expectation(walker, v_gamma, ovlp, V_T, dev)
 
     xbar = -np.sqrt(dtau) * (v_expectation - mf_shift)
     # Sampling the auxiliary fields
@@ -517,3 +518,39 @@ def q_propogate_walker(x, v_0, v_gamma, mf_shift, dtau, walker, V_T, ovlp, dev):
     new_walker, _ = reortho(B @ walker)
 
     return new_walker
+
+
+def one_body_expectation(walker, one_bodies, ovlp, V_T, dev):
+    """This function computes the expectation value of one-body operator between quantum trial state and walker
+    Args:
+        walker: walker Slater determinant
+        one_bodies: list of one_body operators whose expectation value is to be computed;
+        ovlp: amplitude between walker and the quantum trial state
+        V_T: quantum trial state
+        dev: qml.device('lightning.qubit', wires=wires) for simulator;
+             qml.device('braket.aws.qubit', device_arn=device_arn, wires=wires, shots=shots) for real device;
+    Returns:
+        value:
+    """
+    num_qubits, num_particles = walker.shape
+    Id = np.identity(num_qubits)
+
+    expectation = np.array([])
+    pauli_dict = {i: pauli_estimate(walker, V_T, Id, [i], dev) for i in range(num_qubits)}
+    for one_body in one_bodies:
+        value = 0.0 + 0.0j
+        # check if the one-body term is already diagonal or not
+        if np.count_nonzero(np.round(one_body - np.diag(np.diagonal(one_body)), 7)) != 0:
+            lamb, U = np.linalg.eigh(one_body)
+            pauli_dict_2 = {i: pauli_estimate(walker, V_T, U, [i], dev) for i in range(num_qubits)}
+
+            for i in range(num_qubits):
+                expectation_value = 0.5 * (ovlp - pauli_dict_2.get(i))
+                value += lamb[i] * expectation_value
+
+        else:
+            for i in range(num_qubits):
+                expectation_value = 0.5 * (ovlp - pauli_dict.get(i))
+                value += one_body[i, i] * expectation_value
+        expectation = np.append(expectation, value)
+    return expectation
