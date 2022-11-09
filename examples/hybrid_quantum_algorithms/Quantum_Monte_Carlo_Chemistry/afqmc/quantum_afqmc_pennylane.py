@@ -1,6 +1,5 @@
 import multiprocessing as mp
 import os
-from typing import Iterable
 
 import numpy as np
 import pennylane as qml
@@ -20,10 +19,10 @@ np.seterr(divide="ignore", invalid="ignore")  # ignore divide by zero
 
 
 def quantum_afqmc(
-    quantum_times: Iterable,
     num_walkers: int,
     num_steps: int,
     dtau: float,
+    quantum_evaluations_every_n_steps: int,
     trial: np.ndarray,
     prop: ChemicalProperties,
     dev: qml.Device,
@@ -32,10 +31,10 @@ def quantum_afqmc(
     """Quantum assisted Auxiliary-Field Quantum Monte Carlo
 
     Args:
-        quantum_times (Iterable): List of times to evaluate the energy using a quantum device.
             Otherwise, it uses classical evaluations.
         num_walkers (int): Number of walkers.
         num_steps (int): Number of (imaginary) time steps
+        quantum_evaluations_every_n_steps (int): How often to evaluate the energy using quantum
         dtau (float): Increment of each time step
         trial (np.ndarray): Trial wavefunction.
         prop (ChemicalProperties): Chemical properties.
@@ -50,7 +49,7 @@ def quantum_afqmc(
     weights = [1.0] * num_walkers
 
     inputs = [
-        (quantum_times, num_steps, dtau, trial, prop, Ehf, walker, weight, dev)
+        (num_steps, quantum_evaluations_every_n_steps, dtau, trial, prop, Ehf, walker, weight, dev)
         for walker, weight in zip(walkers, weights)
     ]
 
@@ -63,10 +62,11 @@ def quantum_afqmc(
     energies = np.real(np.average(local_energies, weights=weights, axis=0))
 
     # post-processing to include quantum energy evaluations
+    # this will have many np.nans, but it's okay
     quantum_energies = np.real((weights * nums).mean(0) / (weights * denoms).mean(0))
-    quantum_energies = quantum_energies[~np.isnan(quantum_energies)]
-    for i, q in enumerate(quantum_times):
-        energies[int(q / dtau)] = quantum_energies[i]
+    for q_step in range(0, num_steps, quantum_evaluations_every_n_steps):
+        energies[q_step] = quantum_energies[q_step]
+    quantum_energies = quantum_energies[~np.isnan(quantum_energies)]  # remove nans
     return quantum_energies, energies
 
 
@@ -75,8 +75,8 @@ def q_full_imag_time_evolution_wrapper(args):
 
 
 def q_full_imag_time_evolution(
-    quantum_times: Iterable,
     num_steps: int,
+    quantum_evaluations_every_n_steps: int,
     dtau: float,
     trial: np.ndarray,
     prop: ChemicalProperties,
@@ -85,10 +85,14 @@ def q_full_imag_time_evolution(
     weight: float,
     dev: qml.Device,
 ):
+    # random seed for mutliprocessing
+    np.random.seed(int.from_bytes(os.urandom(4), byteorder="little"))
+
     energy_list, weights, qs, cs = [], [], [], []
     for time in range(num_steps):
         # If the time step is in the quantum times, evaluate the energy with quantum
-        if time * dtau in quantum_times:
+        if time % quantum_evaluations_every_n_steps == 0:
+            # if time * dtau in quantum_times:
             E_loc, num, denom, walker, weight = imag_time_propogator_qaee(
                 dtau, trial, walker, weight, prop, E_shift, dev
             )
@@ -131,8 +135,6 @@ def imag_time_propogator_qaee(
         new_walker: new walker for the next time step
 
     """
-    seed = np.random.seed(int.from_bytes(os.urandom(4), byteorder="little"))
-
     # First compute the bias force using the expectation value of L operators
     num_spin_orbitals, num_electrons = trial.shape
     num_fields = len(prop.v_gamma)

@@ -8,21 +8,19 @@ import numpy as np
 from openfermion.circuits.low_rank import low_rank_two_body_decomposition
 from scipy.linalg import det, expm, qr
 
-CUTOFF = 1e-16
-
 
 @dataclass
 class ChemicalProperties:
-    h1e: np.ndarray
-    eri: np.ndarray
-    nuclear_repulsion: float
-    v_0: np.ndarray
-    h_chem: np.ndarray
-    v_gamma: List[np.ndarray]
-    L_gamma: List[np.ndarray]
-    mf_shift: np.ndarray
-    lambda_l: List[np.ndarray]
-    U_l: List[np.ndarray]
+    h1e: np.ndarray  # one-body term
+    eri: np.ndarray  # two-body term
+    nuclear_repulsion: float  # nuclear repulsion energy
+    v_0: np.ndarray  # one-body term stored as np.ndarray with mean-field subtraction
+    h_chem: np.ndarray  # one-body term stored as np.ndarray, without mean-field subtraction
+    v_gamma: List[np.ndarray]  # 1j * L_gamma
+    L_gamma: List[np.ndarray]  # Cholesky vector decomposed from two-body terms
+    mf_shift: np.ndarray  # mean-field shift
+    lambda_l: List[np.ndarray]  # eigenvalues of Cholesky vectors
+    U_l: List[np.ndarray]  # eigenvectors of Cholesky vectors
 
 
 def classical_afqmc(
@@ -87,6 +85,9 @@ def full_imag_time_evolution(
     walker: np.ndarray,
     weight: float,
 ):
+    # random seed for multiprocessing
+    np.random.seed(int.from_bytes(os.urandom(4), byteorder="little"))
+
     energy_list, weights = [], []
     for _ in range(num_steps):
         E_loc, walker, weight = imag_time_propogator(dtau, trial, walker, weight, prop, E_shift)
@@ -103,7 +104,6 @@ def imag_time_propogator(
     prop: ChemicalProperties,
     E_shift: float,
 ):
-    seed = np.random.seed(int.from_bytes(os.urandom(4), byteorder="little"))
     # First compute the bias force using the expectation value of L operators
     num_fields = len(prop.v_gamma)
 
