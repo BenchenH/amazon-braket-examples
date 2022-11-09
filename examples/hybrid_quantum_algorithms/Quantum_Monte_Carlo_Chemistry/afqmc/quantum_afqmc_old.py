@@ -41,14 +41,10 @@ def quantum_afqmc(
     with mp.Pool(max_pool) as pool:
         results = list(pool.map(q_full_imag_time_evolution_wrapper, inputs))
 
-    # energies = np.real(np.array([energy for energy, weight in results]))
-    # weights = np.real(np.array([weight for energy, weight in results]))
-    # weighted_mean = np.real(np.average(energies, weights=weights, axis=0))
-    # # qE = quantum_energy(weights, ovlpratio_list, qenergy_list)
-    # # qE_list.append(qE)
-    # # E = qE
-
-    return results
+    energies = np.real(np.array([energy for energy, weight, q, c in results]))
+    weights = np.real(np.array([weight for energy, weight, q, c in results]))
+    weighted_mean = np.real(np.average(energies, weights=weights, axis=0))
+    return energies, weights, weighted_mean
 
 
 def q_full_imag_time_evolution_wrapper(args):
@@ -69,9 +65,14 @@ def q_full_imag_time_evolution(
     energy_list, weights, qs, cs = [], [], [], []
     for time in range(num_steps):
         if time * dtau in q_total_time:
-            E_loc, num, denom, walker, weight = imag_time_propogator_qaee(
+            # E_loc: local energy
+            # E_loc_q / c_ovlp: numerator
+            # q_ovlp / c_ovlp: denominator for evaluation of total energy
+            E_loc, E_loc_q, num, denom, walker, weight = imag_time_propogator_qaee(
                 dtau, trial, walker, weight, prop, E_shift, dev
             )
+            # TODO Get the actual quantum energy
+            E_loc = quantum_energy(weight, num, denom)
         else:
             E_loc, walker, weight = imag_time_propogator(dtau, trial, walker, weight, prop, E_shift)
             num = 0
@@ -156,7 +157,9 @@ def imag_time_propogator_qaee(
     arg = np.angle(new_ovlp / ovlp)
     new_weight = weight * np.exp(-dtau * (np.real(E_loc) - E_shift)) * np.max([0.0, np.cos(arg)])
 
-    return E_loc, (E_loc_q / c_ovlp), (q_ovlp / c_ovlp), new_walker, new_weight
+    numerator = E_loc_q / c_ovlp
+    denominator = q_ovlp / c_ovlp
+    return E_loc, E_loc_q, numerator, denominator, new_walker, new_weight
 
 
 def imag_time_propogator_wrapper(args):
@@ -166,12 +169,9 @@ def imag_time_propogator_wrapper(args):
     return imag_time_propogator_qaee(*args)
 
 
-def quantum_energy(weights, ovlpratio_list, qenergy_list):
-    numerator = 0.0 + 0.0j
-    denominator = 0.0 + 0.0j
-    for i in range(len(weights)):
-        numerator += weights[i] * qenergy_list[i]
-        denominator += weights[i] * ovlpratio_list[i]
+def quantum_energy(weight, ovlpratio, qenergy):
+    numerator = weight * qenergy
+    denominator = weight * ovlpratio
     qE = np.real(numerator / denominator)
     return qE
 
