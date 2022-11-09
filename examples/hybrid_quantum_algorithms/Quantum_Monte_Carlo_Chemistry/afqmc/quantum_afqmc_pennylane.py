@@ -19,7 +19,7 @@ CUTOFF = 1e-14
 
 
 def quantum_afqmc(
-    q_total_time: Iterable,
+    quantum_times: Iterable,
     num_walkers: int,
     num_steps: int,
     dtau: float,
@@ -28,12 +28,28 @@ def quantum_afqmc(
     dev: qml.Device,
     max_pool: int = 8,
 ):
+    """Quantum assisted Auxiliary-Field Quantum Monte Carlo
+
+    Args:
+        quantum_times (Iterable): List of times to evaluate the energy using a quantum device.
+            Otherwise, it uses classical evaluations.
+        num_walkers (int): Number of walkers.
+        num_steps (int): Number of (imaginary) time steps
+        dtau (float): Increment of each time step
+        trial (np.ndarray): Trial wavefunction.
+        prop (ChemicalProperties): Chemical properties.
+        dev (qml.Device): Pennylane device to run circuits on.
+        max_pool (int, optional): Max workers. Defaults to 8.
+
+    Returns:
+        energies: energies
+    """
     Ehf = hartree_fock_energy(trial, prop)
     walkers = [trial] * num_walkers
     weights = [1.0] * num_walkers
 
     inputs = [
-        (q_total_time, num_steps, dtau, trial, prop, Ehf, walker, weight, dev)
+        (quantum_times, num_steps, dtau, trial, prop, Ehf, walker, weight, dev)
         for walker, weight in zip(walkers, weights)
     ]
 
@@ -41,14 +57,21 @@ def quantum_afqmc(
     with mp.Pool(max_pool) as pool:
         results = list(pool.map(q_full_imag_time_evolution_wrapper, inputs))
 
-    # energies = np.real(np.array([energy for energy, weight in results]))
-    # weights = np.real(np.array([weight for energy, weight in results]))
-    # weighted_mean = np.real(np.average(energies, weights=weights, axis=0))
-    # # qE = quantum_energy(weights, ovlpratio_list, qenergy_list)
-    # # qE_list.append(qE)
-    # # E = qE
+    energies, weights, nums, denoms = map(list, zip(*results))
+    energies = np.array(energies)
+    weights = np.real(np.array(weights))
+    nums = np.array(nums)
+    denoms = np.array(denoms)
 
-    return results
+    weighted_mean = np.real(np.average(energies, weights=weights, axis=0))
+
+    # post-processing to include quantum energy evaluations
+    quantum_energies = np.real((weights * nums).mean(0) / (weights * denoms).mean(0))
+    quantum_energies = quantum_energies[~np.isnan(quantum_energies)]
+    for i, q in enumerate(quantum_times):
+        print(int(q / dtau))
+        weighted_mean[int(q / dtau)] = quantum_energies[i]
+    return quantum_energies, weighted_mean
 
 
 def q_full_imag_time_evolution_wrapper(args):
@@ -56,7 +79,7 @@ def q_full_imag_time_evolution_wrapper(args):
 
 
 def q_full_imag_time_evolution(
-    q_total_time: Iterable,
+    quantum_times: Iterable,
     num_steps: int,
     dtau: float,
     trial: np.ndarray,
@@ -68,7 +91,7 @@ def q_full_imag_time_evolution(
 ):
     energy_list, weights, qs, cs = [], [], [], []
     for time in range(num_steps):
-        if time * dtau in q_total_time:
+        if time * dtau in quantum_times:
             E_loc, num, denom, walker, weight = imag_time_propogator_qaee(
                 dtau, trial, walker, weight, prop, E_shift, dev
             )
@@ -156,7 +179,9 @@ def imag_time_propogator_qaee(
     arg = np.angle(new_ovlp / ovlp)
     new_weight = weight * np.exp(-dtau * (np.real(E_loc) - E_shift)) * np.max([0.0, np.cos(arg)])
 
-    return E_loc, (E_loc_q / c_ovlp), (q_ovlp / c_ovlp), new_walker, new_weight
+    numerator = E_loc_q / c_ovlp
+    denominator = q_ovlp / c_ovlp
+    return E_loc, numerator, denominator, new_walker, new_weight
 
 
 def imag_time_propogator_wrapper(args):
