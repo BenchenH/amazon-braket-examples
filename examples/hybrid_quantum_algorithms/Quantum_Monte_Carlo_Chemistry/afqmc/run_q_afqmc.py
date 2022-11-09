@@ -11,11 +11,7 @@ from pyscf import fci, gto
 
 
 def run(
-    quantum_times,  # no type hint
-    num_walkers: int,
-    num_steps: int,
-    dtau: float,
-    max_pool: int,
+    quantum_times, num_walkers: int, num_steps: int, dtau: float, max_pool: int  # no type hint
 ):
 
     # perform HF calculations
