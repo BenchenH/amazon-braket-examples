@@ -60,11 +60,9 @@ def classical_afqmc(
     with mp.Pool(max_pool) as pool:
         results = list(pool.map(full_imag_time_evolution_wrapper, inputs))
 
-    energies, weights = map(list, zip(*results))
-    energies = np.real(np.array(energies))
-    weights = np.real(np.array(weights))
-    weighted_mean = np.real(np.average(energies, weights=weights, axis=0))
-    return energies, weights, weighted_mean
+    local_energies, weights = map(np.array, zip(*results))
+    energies = np.real(np.average(local_energies, weights=weights, axis=0))
+    return local_energies, energies
 
 
 def hartree_fock_energy(trial: np.ndarray, prop: ChemicalProperties) -> float:

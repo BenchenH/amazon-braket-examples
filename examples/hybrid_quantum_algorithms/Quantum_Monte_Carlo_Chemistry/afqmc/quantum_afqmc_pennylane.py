@@ -15,8 +15,6 @@ from afqmc.classical_afqmc import (
 )
 from openfermion.linalg.givens_rotations import givens_decomposition_square
 
-CUTOFF = 1e-14
-
 
 def quantum_afqmc(
     quantum_times: Iterable,
@@ -57,21 +55,18 @@ def quantum_afqmc(
     with mp.Pool(max_pool) as pool:
         results = list(pool.map(q_full_imag_time_evolution_wrapper, inputs))
 
-    energies, weights, nums, denoms = map(list, zip(*results))
-    energies = np.array(energies)
-    weights = np.real(np.array(weights))
-    nums = np.array(nums)
-    denoms = np.array(denoms)
+    local_energies, weights, nums, denoms = map(np.array, zip(*results))
 
-    weighted_mean = np.real(np.average(energies, weights=weights, axis=0))
+    energies = np.real(np.average(local_energies, weights=weights, axis=0))
 
     # post-processing to include quantum energy evaluations
     quantum_energies = np.real((weights * nums).mean(0) / (weights * denoms).mean(0))
     quantum_energies = quantum_energies[~np.isnan(quantum_energies)]
     for i, q in enumerate(quantum_times):
         print(int(q / dtau))
-        weighted_mean[int(q / dtau)] = quantum_energies[i]
-    return quantum_energies, weighted_mean
+        energies[int(q / dtau)] = quantum_energies[i]
+
+    return quantum_energies, energies
 
 
 def q_full_imag_time_evolution_wrapper(args):
@@ -91,15 +86,15 @@ def q_full_imag_time_evolution(
 ):
     energy_list, weights, qs, cs = [], [], [], []
     for time in range(num_steps):
+        # If the time step is in the quantum times, evaluate the energy with quantum
         if time * dtau in quantum_times:
             E_loc, num, denom, walker, weight = imag_time_propogator_qaee(
                 dtau, trial, walker, weight, prop, E_shift, dev
             )
-        else:
+        else:  # otherwise, do classical energy
             E_loc, walker, weight = imag_time_propogator(dtau, trial, walker, weight, prop, E_shift)
             num = 0
             denom = 0
-
         energy_list.append(E_loc)
         weights.append(weight)
         qs.append(num)
@@ -116,26 +111,16 @@ def imag_time_propogator_qaee(
     E_shift: float,
     dev: qml.Device,
 ):
-
-    r"""This function defines the imaginary propagation process and will return new walker state and new weight.
+    """Imaginary time propogator with quantum energy evaluations.
 
     Args:
-        v_0: modified one-body term from reordering the two-body operator + mean-field subtraction.
-        v_gamma: Cholesky vectors stored in list (L, num_spin_orbitals, num_spin_orbitals), without mf_shift
-        mf_shift: mean-field shift \Bar{v}_{\gamma} stored in np.array format
-        dtau: imaginary time step size
-        trial: trial state as np.ndarray, e.g., for h2 HartreeFock state, it is np.array([[1,0], [0,1], [0,0], [0,0]])
-        walker: normalized walker state as np.ndarray, others are the same as trial
-        weight:
-        h1e, eri: one-electron and two-electron integral stored in spatial orbitals
-        enuc: nuclear repulsion energy
-        E_shift: reference energy, usually taken as the HF energy.
-        h_chem: modified one-body term from reordering the two-body operator
-        lambda_l: eigenvalues of Cholesky vectors
-        U_l: eigenvectors of Cholesky vectors
-        V_T: quantum trial state
-        dev: qml.device('lightning.qubit', wires=wires) for simulator;
-             qml.device('braket.aws.qubit', device_arn=device_arn, wires=wires, shots=shots) for real device;
+        dtau (float): imaginary time step size
+        trial (np.ndarray): trial state as np.ndarray, e.g., for h2 HartreeFock state, it is np.array([[1,0], [0,1], [0,0], [0,0]])
+        walker (np.ndarray): normalized walker state as np.ndarray, others are the same as trial
+        weight (float): weight for sampling.
+        prop (ChemicalProperties): Chemical properties.
+        E_shift (float): Reference energy, i.e. Hartree-Fock energy
+        dev (qml.Device): Pennylane device
 
     Returns:
         E_loc: local energy
@@ -182,43 +167,6 @@ def imag_time_propogator_qaee(
     numerator = E_loc_q / c_ovlp
     denominator = q_ovlp / c_ovlp
     return E_loc, numerator, denominator, new_walker, new_weight
-
-
-def imag_time_propogator_wrapper(args):
-    """
-    Wrapper function for quantum AFQMC
-    """
-    return imag_time_propogator_qaee(*args)
-
-
-def quantum_energy(weights, ovlpratio_list, qenergy_list):
-    numerator = 0.0 + 0.0j
-    denominator = 0.0 + 0.0j
-    for i in range(len(weights)):
-        numerator += weights[i] * qenergy_list[i]
-        denominator += weights[i] * ovlpratio_list[i]
-    qE = np.real(numerator / denominator)
-    return qE
-
-
-def run_quantum_qmc(max_pool, inputs):
-    weight_list = []
-    walker_list = []
-    cenergy_list = []
-    qenergy_list = []
-    ovlpratio_list = []
-
-    with mp.Pool(max_pool) as pool:
-        results = list(pool.map(imag_time_propogator_wrapper, inputs))
-
-    for (E_loc, E_loc_q, ovlp_ratio, new_walker, new_weight) in results:
-        cenergy_list.append(E_loc)
-        ovlpratio_list.append(ovlp_ratio)
-        qenergy_list.append(E_loc_q)
-        if new_weight > CUTOFF:
-            weight_list.append(new_weight)
-            walker_list.append(new_walker)
-    return cenergy_list, ovlpratio_list, qenergy_list, weight_list, walker_list
 
 
 def local_energy_quantum(walker, ovlp, one_body, lambda_l, U_l, V_T, dev):
