@@ -472,3 +472,48 @@ def V_T():
     qml.RX(-np.pi / 2.0, wires=0)
     for i in range(1, 4):
         qml.Hadamard(wires=i)
+
+
+def q_propogate_walker(x, v_0, v_gamma, mf_shift, dtau, walker, V_T, ovlp, dev):
+    r"""This function updates the walker from imaginary time propagation.
+    Args:
+        x: auxiliary fields
+        v_0: modified one-body term from reordering the two-body operator + mean-field subtraction.
+        v_gamma: Cholesky vectors stored in list (L, num_spin_orbitals, num_spin_orbitals), without mf_shift
+        mf_shift: mean-field shift \Bar{v}_{\gamma} stored in np.array format
+        dtau: imaginary time step size
+        walker: walker state as np.ndarray, others are the same as trial
+        V_T: quantum trial state
+        ovlp: amplitude between walker and the quantum trial state
+        dev: qml.device('lightning.qubit', wires=wires) for simulator;
+             qml.device('braket.aws.qubit', device_arn=device_arn, wires=wires, shots=shots) for real device;
+    Returns:
+        new_walker: new walker for the next time step
+    """
+    num_spin_orbitals, num_electrons = walker.shape
+    num_fields = len(v_gamma)
+
+    v_expectation = qExpect_OneBody(walker, v_gamma, ovlp, V_T, dev)
+
+    xbar = -np.sqrt(dtau) * (v_expectation - mf_shift)
+    # Sampling the auxiliary fields
+    xshifted = x - xbar
+
+    # Define the B operator B(x - \bar{x})
+    exp_v0 = expm(-dtau / 2 * v_0)
+
+    V = np.zeros((num_spin_orbitals, num_spin_orbitals), dtype=np.complex128)
+    for i in range(num_fields):
+        V += np.sqrt(dtau) * xshifted[i] * v_gamma[i]
+    exp_V = expm(V)
+
+    # Note that v_gamma doesn't include the mf_shift, there is an additional term coming from
+    # -(x - xbar)*mf_shift, this term is also a complex value.
+    # cmf = -np.sqrt(dtau)*np.dot(xshifted, mf_shift)
+    # prefactor = np.exp(-dtau*(H_0 - E_0) + cmf)
+    B = exp_v0 @ exp_V @ exp_v0
+
+    # Find the new walker state
+    new_walker, _ = reortho(B @ walker)
+
+    return new_walker
