@@ -65,9 +65,7 @@ def quantum_afqmc(
     quantum_energies = np.real((weights * nums).mean(0) / (weights * denoms).mean(0))
     quantum_energies = quantum_energies[~np.isnan(quantum_energies)]
     for i, q in enumerate(quantum_times):
-        print(int(q / dtau))
         energies[int(q / dtau)] = quantum_energies[i]
-
     return quantum_energies, energies
 
 
