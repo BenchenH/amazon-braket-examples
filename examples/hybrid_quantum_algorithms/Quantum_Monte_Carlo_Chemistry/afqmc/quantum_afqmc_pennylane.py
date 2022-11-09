@@ -15,6 +15,8 @@ from afqmc.classical_afqmc import (
 )
 from openfermion.linalg.givens_rotations import givens_decomposition_square
 
+np.seterr(divide="ignore", invalid="ignore")  # ignore divide by zero
+
 
 def quantum_afqmc(
     quantum_times: Iterable,
